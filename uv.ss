@@ -661,7 +661,29 @@
          (free-ssl-client client)
          (ok #t)))))
 
+  (define (try thunk)
+    (call/cc
+     (lambda (k)
+       (with-exception-handler
+           (lambda (x) (if (error? x)
+                           #f))))))
+
   (define (uv/make-https-request loop ctx url on-done)
+    ((async-do
+      (<- addr (uv/getaddrinfo loop (uv/url-host url)))
+      (<- stream (uv/tcp-connect loop (addr->sockaddr addr (uv/url-port url))))
+      (<- client (tls-connect ctx stream))
+      (<- status ((caddr client) (format #f "GET ~a HTTP/1.1\r\nHost: ~a\r\nConnection: close\r\n\r\n" (uv/url-path url)
+                                         (uv/url-host url))))
+      (<- resp (uv/read-http-response (cadr client)))
+      (<- done (tls-shutdown (car client) stream))
+      (handle-close stream nothing)
+      (free-ssl-client (car client))
+      (async-return resp))
+     on-done))
+
+
+  (define (uv/make-https-request2 loop ctx url on-done)
     ((async-do
       (<- addr (uv/getaddrinfo loop (uv/url-host url)))
       (<- stream (uv/tcp-connect loop (addr->sockaddr addr (uv/url-port url))))

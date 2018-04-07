@@ -299,7 +299,7 @@
       (unlock-object code)))
 
   (define (handle-close h cb)
-    (when (= 0 (uv-is-closing h))
+    (if (= 0 (uv-is-closing h))
       (letrec ([code (foreign-callable
                       (lambda (h)
                         (cb h)
@@ -309,11 +309,11 @@
                       void)])
 
         (lock-object code)
-        (uv-close h (foreign-callable-entry-point code)))))
+        (uv-close h (foreign-callable-entry-point code)))
+      (cb h)))
 
   (define alloc-zero
     (lambda (size)
       (let ([p (foreign-alloc size)])
         (memset p 0 size)
-        p)))
-  )
+        p))))
