@@ -13,6 +13,7 @@
           addrinfo
           INADDR_ANY
           int->ip-address
+          display-addrinfo
           sockaddr->ip-address
           sockaddr-set-port
           sockaddr-set-port)

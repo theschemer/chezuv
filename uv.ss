@@ -7,6 +7,7 @@
           uv/url-protocol
           uv/url-path
           uv/url-port
+          test
           uv/close
           uv/stop
           uv/make-reader
@@ -20,7 +21,9 @@
           uv/make-http-request
           uv/make-https-request
           uv/call-with-ssl-context
-          uv/getaddrinfo)
+          uv/getaddrinfo
+          uv/getaddrinfo2
+          )
   (import (chezscheme)
           (inet)
           (libuv)
@@ -81,6 +84,11 @@
   (define (handle-type-name handle)
     (uv-handle-type-name (uv-handle-get-type handle)))
 
+  (define trim-newline!
+    (lambda (bv num-read)
+      (truncate-bytevector! bv
+                            (if (= 13 (bytevector-u8-ref bv (- num-read 2)))
+                                (- num-read 2) (- num-read 1)))))
 
   (define (register-signal-handlers uv-loop)
     (letrec ([sig-handle (make-handler UV_SIGNAL)]
@@ -143,6 +151,13 @@
    (foreign-free (ftype-pointer-address (ftype-ref uv-buf (base) buf)))
    (foreign-free (ftype-pointer-address buf)))
 
+ (define (uv/read-lines reader on-line)
+   (reader (make-bytevector 1024) 0 'eol
+           (lambda (bv num-read)
+             (if (and bv (on-line (trim-newline! bv num-read)))
+                 (uv/read-lines reader on-line)
+                 (on-line #f)))))
+
  (define (read-headers reader done)
    (let ([lines '()])
      (uv/read-lines reader
@@ -186,7 +201,8 @@
           (lambda () #f)
           (lambda ()
             (f l)
-            (uv-run l 0))
+            (uv-run l 0)
+            )
           (lambda ()
             (uv-stop l))))))
 
@@ -213,6 +229,70 @@
            (uv-getaddrinfo loop req (foreign-callable-entry-point code)
                            name #f hint))))))
 
+  (define (test loop)
+    (info "top of test")
+    (let/async2
+     ([addr (<- (uv/getaddrinfo2 loop "google.com"))]
+      [sockaddr (addr->sockaddr addr 80)]
+      [sock (<- (uv/tcp-connect2 loop sockaddr))])
+     (display-addrinfo addr)
+     (format #t "sock is ~a\n" sock)))
+
+  (define-syntax let/async2
+    (syntax-rules (<-)
+      ((_ () body ...)
+       (let () body ...))
+
+      ((_ ((name (<- value)) next ...) body ...)
+       (value (lambda (name)
+                (let/async2 (next ...)
+                           body ...))))
+      ((_ ((name value) next ...) body ...)
+       (let ((name value))
+            (let/async2 (next ...)
+                        body ...)))))
+
+  (define uv/getaddrinfo2
+    (lambda (loop name)
+       (lambda (k)
+         (letrec ([hint (make-ftype-pointer addrinfo (alloc-zero (ftype-sizeof addrinfo)))]
+                  [req (make-req UV_GETADDRINFO)]
+                  [code (foreign-callable
+                         (lambda (req status addr)
+                           (foreign-free req)
+                           (foreign-free (ftype-pointer-address hint))
+                           (unlock-object code)
+                           (if (= 0 status)
+                               (k addr)
+                               (begin
+                                 (uv-freeaddrinfo addr)
+                                 (error 'getaddrinfo "invalid status" status)))
+                           (uv-freeaddrinfo addr))
+                         (void* int (* addrinfo))
+                         void)])
+           (lock-object code)
+           (ftype-set! addrinfo (ai_family) hint AF_INET)
+           (ftype-set! addrinfo (ai_socktype) hint SOCK_STREAM)
+           (uv-getaddrinfo loop req (foreign-callable-entry-point code)
+                           name #f hint)))))
+
+  (define (uv/tcp-connect2 loop addr)
+    (lambda (k)
+      (letrec* ([conn (make-handler UV_STREAM)]
+                [socket (make-handler UV_TCP)]
+                [code (foreign-callable
+                       (lambda (conn status)
+                         (unlock-object code)
+                         (if (= 0 status)
+                             (k socket)
+                             (error 'tcp-connect status)))
+                       (void* int)
+                       void)])
+        (lock-object code)
+        (check (uv-tcp-init loop socket))
+        (check (uv-tcp-connect conn socket addr
+                               (foreign-callable-entry-point code)))
+        )))
 
 
   (define (uv/make-idle l cb)
@@ -313,18 +393,6 @@
                           (send-buf bv start len on-read))
                         (on-read #f #f)))))))
 
-  (define trim-newline!
-    (lambda (bv num-read)
-      (truncate-bytevector! bv
-                            (if (= 13 (bytevector-u8-ref bv (- num-read 2)))
-                                (- num-read 2) (- num-read 1)))))
-
-  (define (uv/read-lines reader on-line)
-    (reader (make-bytevector 1024) 0 'eol
-            (lambda (bv num-read)
-              (if (and bv (on-line (trim-newline! bv num-read)))
-                  (uv/read-lines reader on-line)
-                  (on-line #f)))))
 
   (define (uv/read-fully reader n on-done)
     (let ([bv (make-bytevector n)])
