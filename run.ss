@@ -25,41 +25,19 @@
   (time
    (uv/with-loop
     (lambda (loop)
-      ;; (uv/call-with-ssl-context #f #f #t
-      ;;                           (lambda (ctx on-done)
-      ;;                             (let ([rx 0]
-      ;;                                   [url (uv/string->url "https://localhost:9090")])
-      ;;                               (let top ((n 0))
-      ;;                                 (format #t "top\n")
-      ;;                                 (uv/make-https-request loop ctx url
-      ;;                                                        (lambda (err ok)
-      ;;                                                          (format #t "err: ~a\n" err)
-      ;;                                                          (format #t "ok: ~a\n" ok)
-      ;;                                                          (format #t "rx: ~a\n" rx)
-      ;;                                                          (set! rx (+ 1 rx))
-      ;;                                                          (if (or err (> rx iterations))
-      ;;                                                              (begin
-      ;;                                                                (format #t "iterations: ~a, rx: ~a\n" iterations rx)
-      ;;                                                                (on-done err ok)))))
-      ;;                                    (if (< n iterations)
-      ;;                                        (top (+ 1 n)))))))
-      (format #t "1. I got a ~a back\n" (test loop))
-      ;; (format #t "2: I got a ~a back\n" (test loop))
-      )
-    )
-      ;; (uv/call-with-ssl-context "cert.pem" "key.pem" #f
-      ;;  (lambda (ctx on-done)
-      ;;    (uv/tcp-listen loop "127.0.0.1:8443"
-      ;;                   (lambda (err . value)
-      ;;                     (uv/serve-https ctx (cadr value)
-      ;;                                     (lambda (err ok)
-      ;;                                       (format #t "in run.ss\n")
-      ;;                                       (uv/close-stream (cadr value))))))))
-      ;; (uv/tcp-listen loop "127.0.0.1:8080"
-      ;;                (lambda (err . value)
-      ;;                  (uv/serve-http (cadr value)
-      ;;                                 (lambda (err ok)
-      ;;                                   (uv/close-stream (cadr value))))))
-
-      )
-    )
+      (uv/call-with-ssl-context #f #f #t
+                                (lambda (ctx)
+                                  (let ([rx 0]
+                                        [url (uv/string->url "https://google.ca")])
+                                    (let top ((n 0))
+                                      (format #t "top\n")
+                                      (let/async ([r (<- (uv/make-https-request loop ctx url))])
+                                                 (format #t "ok: ~a\n" ok)
+                                                 (format #t "rx: ~a\n" rx)
+                                                 (set! rx (+ 1 rx))
+                                                 (if (> rx iterations)
+                                                     (begin
+                                                       (apply display-http-request r)
+                                                       (format #t "iterations: ~a, rx: ~a\n" iterations rx)
+                                                       (exit))
+                                                     (top (+ 1 n))))))))))))
